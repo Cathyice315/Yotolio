@@ -2,15 +2,14 @@
 
 The interface and every built-in guide step are available in **English and Simplified Chinese**.
 English is the default. Change the language in the top-right menu at any time; your choice is remembered for this app.
-The renamed app retains its existing language choice. If it has none, it inherits the choice from `Yotolio Review and Upload.app`,
-`Yotolio Review Fix.app`, `Yotolio Login Fix.app`, or `Yotolio Update.app`, in that order,
-without needing those older app bundles.
 No account data is stored in browser local storage.
 
 **macOS build status:** `Yotolio.app` includes the combined review and upload flow and full-aspect cover previews.
-A previous version successfully signed in and uploaded new cards; live replacement and the renamed build have not been retested.
+Live replacement has not been verified with a Yoto account.
 
 ## Before you begin
+
+Yotolio currently supports macOS 12 or later.
 
 1. Download this repository from GitHub using **Code → Download ZIP**, then extract it.
 2. Install **Python 3.11 or newer** with the graphical installer from [python.org](https://www.python.org/downloads/).
@@ -18,19 +17,14 @@ A previous version successfully signed in and uploaded new cards; live replaceme
    The app never asks for a password or client secret; sign in directly with Yoto when prompted.
 3. Keep the entire project together. The launcher needs `yoto_ui.py`, `yoto_accounts.py`, `yoto_discovery.py`,
    `yoto_tls.py`, both worker scripts, and the `web` folder beside it.
-4. On **macOS**, open `Yotolio.app` if present; source-only downloads need their own build.
-   `Start Yoto.command` opens the same app.
-   Finish or pause work and quit older Yotolio apps first; they share the saved login and progress.
+4. Open `Yotolio.app` if present; source-only downloads need their own build.
+   `Start Yotolio.command` opens the same app.
    The `.app` is locally signed, not a notarized installer. If macOS blocks an unverified download, follow
    the system's explicit **Open Anyway** flow only if you trust this source; do not disable platform protections.
-5. On **Windows**, double-click **Start Yoto.bat**. Install Python's launcher when offered by the Python installer.
-   A console may stay open in the background; you do not need to type into it.
-6. The interface is native on macOS and opens in your browser on Windows.
-   Yoto login and other external links open in your browser on both platforms.
+5. The interface is native on macOS. Yoto login and other external links open in your browser.
    The local service binds only to `127.0.0.1`, using an available port.
    Keep the app running during uploads. Close it with **Quit app** after tasks finish.
    On macOS, closing the window leaves the app running; click its Dock icon to reopen it.
-   If an older local service is detected, the app offers to restart it only after confirming that no task is running.
 
 If Python is missing, the launcher offers the official Python download page.
 On macOS, if a python.org installation later reports certificate verification errors, use the Python installer's
@@ -44,7 +38,7 @@ supplied **Install Certificates.command** in its Applications folder; do not dis
 
 Choose a folder containing your audio and images using **Choose folder**.
 If the native picker is unavailable, paste the full path into the field.
-Use Finder or File Explorer's copy-path feature; there is no need to type a command.
+Use Finder's copy-path feature; there is no need to type a command.
 
 Click **Continue** to scan automatically. This checks only local files; it does not search your Yoto account or
 upload anything. The progress indicator runs while scanning, without guessing a percentage. Review opens when
@@ -117,10 +111,10 @@ The displayed authorization status checks saved scope/expiry, not whether Yoto h
 When Yoto omits `scope` entirely from an authorization response, Yotolio uses the permissions requested in that
 login. If only the documented parent `user:content:manage` is returned, missing required child permissions are
 checked through read-only Yoto endpoints before acceptance. An icon-list read does not prove that a later upload
-will succeed. The current build's sign-in behavior has not been independently retested.
+will succeed.
 If Yoto's UserInfo service cannot verify the account, Yotolio can securely verify a signed token from the same
-login using Yoto's signing keys. This fallback uses the system OpenSSL on macOS, or an `openssl` executable on
-`PATH` on Windows and Linux. If verification is unavailable or fails, the existing login and progress are retained.
+login using Yoto's signing keys. This fallback uses the system OpenSSL on macOS.
+If verification is unavailable or fails, the existing login and progress are retained.
 
 ## 3. Review and upload your cards
 
@@ -162,7 +156,7 @@ The app saves a private snapshot before replacement; there is no automatic resto
 It checks the source, card and library membership again before writing, but the check is not atomic with the
 Yoto request. Avoid editing the same card on Yoto while this tool is running. Live replacement has not been
 verified. If a replacement response is uncertain, saved evidence is used to reconcile it without submitting it
-again. If the previous version is still shown, the original request may yet take effect: wait and check again.
+again. If the card still shows its previous contents, the original request may yet take effect: wait and check again.
 Keep the saved progress; there is no force-retry control for an unconfirmed replacement.
 
 Use **Pause after this card** to request a pause at the next completed card boundary.
@@ -234,15 +228,13 @@ If an action fails, the UI shows the error. It does not claim partial work is co
 Do not send tokens, signed URLs, or raw private state when reporting a problem.
 
 macOS launch errors are recorded in `.yoto-myo/ui-launch.log`, which can be opened in a text editor.
-Windows launch errors remain visible in its console.
-macOS is the development platform; Windows launcher and locking branches are provided, but need a real Windows check.
 
 ## 中文使用
 
 双击启动后，在右上角选择 **简体中文**，界面、分步配置和内置问题解答都会切换为中文。
 按“选择素材 → 连接 Yoto → 检查与上传 → 卡片结果”完成配置即可，不需要输入命令行。
 已有同名卡片默认跳过；只有明确选择并确认覆盖时，才会使用本地音频、封面和图标替换。
-数量相同不代表文件相同；请勿同时在 Yoto 编辑同一张卡。之前的版本已成功登录并上传新卡；本次版本和覆盖操作尚未重新验证。
+数量相同不代表文件相同；请勿同时在 Yoto 编辑同一张卡。已有卡片替换尚未通过真实 Yoto 账号验证。
 应用会按登录的 Yoto 账号自动分开保存登录、上传进度和图片选择，无需手动填写工作区。
 切换账号时点击“切换 Yoto 账号”；如果网站仍打开旧账号，请先在 Yoto 网站退出登录。
 如无法确认旧进度属于哪个账号，只有确定属于当前账号时才选择恢复；不确定时选择分开保存或取消。
