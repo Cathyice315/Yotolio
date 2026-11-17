@@ -1123,6 +1123,29 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(self.state, before)
         self.assertEqual(upload.STATE_FILE.read_bytes(), disk_before)
 
+    def test_audit_allows_later_shuffle_changes_without_rewriting_history(self):
+        album, _, card, _ = self.album_and_payload()
+        record = self.state["albums"][album["title"]]
+        record["payload"]["content"]["config"]["shuffle"] = [{"start": 0, "end": 1, "limit": 2}]
+        with self.assertRaisesRegex(RuntimeError, "Shuffle verification"):
+            upload.check_card(card, album, record["payload"])
+        for source_uploaded in (True, False):
+            record["sourceUploaded"] = source_uploaded
+            before = copy.deepcopy(self.state)
+            output = io.StringIO()
+            with self.subTest(source_uploaded=source_uploaded), \
+                    patch.object(upload, "request_json", return_value={"card": copy.deepcopy(card)}), \
+                    patch("sys.stdout", output):
+                upload.verify_album(album, [card])
+                self.assertEqual(self.state, before)
+                self.assertIn("shuffle=no", output.getvalue())
+
+                changed = copy.deepcopy(card)
+                changed["content"]["config"]["resumeTimeout"] = 0
+                with patch.object(upload, "request_json", return_value={"card": changed}), \
+                        self.assertRaisesRegex(RuntimeError, "Always-play-from-start verification"):
+                    upload.verify_album(album, [card])
+
     def test_baseline_only_cards_detect_non_icon_edits(self):
         album, _, card, _ = self.album_and_payload()
         self.state["albums"][album["title"]]["sourceUploaded"] = False

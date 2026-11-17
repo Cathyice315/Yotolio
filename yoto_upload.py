@@ -418,7 +418,7 @@ def playback_options(content):
     return timeout == 0, shuffle, hidden
 
 
-def check_card(card, album, expected=None, verify_playback=True):
+def check_card(card, album, expected=None, verify_playback=True, verify_shuffle=True):
     if card.get("title") != album["title"]:
         raise RuntimeError(f"Title verification failed: {album['title']}")
     content = card.get("content", {})
@@ -433,7 +433,7 @@ def check_card(card, album, expected=None, verify_playback=True):
         expected_options = playback_options(expected["content"])
         if actual_options[0] != expected_options[0]:
             raise RuntimeError(f"Always-play-from-start verification failed: {album['title']}")
-        if actual_options[1] != expected_options[1]:
+        if verify_shuffle and actual_options[1] != expected_options[1]:
             raise RuntimeError(f"Shuffle verification failed: {album['title']}")
         if actual_options[2] != expected_options[2]:
             raise RuntimeError(f"Track-number visibility verification failed: {album['title']}")
@@ -484,6 +484,14 @@ def without_icons(content):
                 display.pop("icon16x16", None)
             if not display:
                 owner.pop("display", None)
+    return result
+
+
+def without_shuffle(content):
+    result = copy.deepcopy(content)
+    config = result.get("config")
+    if isinstance(config, dict):
+        config.pop("shuffle", None)
     return result
 
 
@@ -938,7 +946,7 @@ def verify_album(album, library):
     if recorded.get("cardId") != card_id:
         raise RuntimeError(f"Remote card ID differs from saved state: {album['title']}")
     card = request_json("/content/" + urllib.parse.quote(card_id, safe=""))["card"]
-    count = check_card(card, album, recorded["payload"])
+    count = check_card(card, album, recorded["payload"], verify_shuffle=False)
     icons = []
     for path, saved_icon in zip(album["icons"], recorded["iconIds"], strict=True):
         if path is None:
@@ -966,7 +974,8 @@ def verify_album(album, library):
             raise RuntimeError(f"Local cover differs from uploaded source: {album['title']}")
     else:
         if (
-            without_icons(card["content"]) != without_icons(recorded["payload"]["content"])
+            without_shuffle(without_icons(card["content"]))
+            != without_shuffle(without_icons(recorded["payload"]["content"]))
             or card["metadata"] != recorded["payload"]["metadata"]
         ):
             raise RuntimeError(f"Pre-existing card differs from retained baseline: {album['title']}")

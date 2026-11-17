@@ -213,6 +213,7 @@ Batch outcomes and online check results last for the current app session only an
 switch accounts or change collections. Upload-resume evidence is saved separately for each account and
 remains available after restarting. The CLI's optional
 `--verify-only` is a stricter whole-collection audit; it is not the batch overview.
+It reports the current shuffle setting without treating a later change as an audit failure.
 
 Click **Open my Yoto cards** to see your library.
 Linking a playlist to a physical MYO card is a separate action in Yoto, not part of this tool.
