@@ -27,6 +27,7 @@ Yotolio 帮你整理并批量上传有权使用的音频、封面和歌曲图标
 
 - 已有同名卡片默认跳过；只有选择并确认“替换”才会覆盖音频、封面和图标，缺失素材可能被移除或替换为占位图。
   数量相同不代表内容相同；替换功能尚未通过真实 Yoto 账号验证。
+- 新建或明确替换的卡片会关闭“从头播放”“随机播放”和“隐藏曲目编号”；跳过的卡片不受影响。
 - 上传中断或结果不确定时，先在 Yoto 中检查卡片并保留本机记录，避免重复创建。
 - 实体 MYO 卡的关联需要在 Yoto 中另行完成。
 - 登录令牌以明文保存在本机 `.yoto-myo/` 中，素材路径和上传进度也保存在此；
@@ -68,6 +69,8 @@ you confirm an upload; it does not modify or move your original files.
 - Existing cards with matching titles are skipped by default. Only choosing and confirming **Replace**
   overwrites their audio, cover, and icons; missing assets may be removed or replaced with placeholders.
   Equal counts do not mean equal contents; replacement has not been verified with a live Yoto account.
+- New or explicitly replaced cards have **Always play from start**, **Shuffle**, and **Hide track numbers**
+  turned off; skipped cards are unaffected.
 - If an upload is interrupted or its outcome is uncertain, check the cards on Yoto first and keep
   the local records to avoid creating duplicates.
 - Linking a physical MYO card must be done separately in Yoto.

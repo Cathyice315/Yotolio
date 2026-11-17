@@ -145,13 +145,15 @@ The upload processes selected new cards and existing cards explicitly chosen for
 Cards left on **Skip** are not sent for processing. Adjust the selections on this page as needed, then click
 **Upload selected cards** and confirm the listed account actions.
 Each new card includes a clean title, cover or placeholder,
-all discovered audio, shuffle each play, and available matching icons at both chapter and track levels.
+all discovered audio in order, and available matching icons at both chapter and track levels.
+For new and replaced cards, **Always play from start**, **Shuffle tracks each time played**, and
+**Hide track numbers** are off by default.
 Cards with no audio, ambiguous grouping, or more than 100 tracks cannot be selected in Review.
 Source files stay on your computer until these authorized uploads send their bytes to Yoto.
 Only use material you own or have permission to upload.
 
 The progress display comes from real worker output. Replacement uses the existing card ID and preserves
-other card metadata where possible, but replaces the audio, cover, icons and app shuffle sequence.
+other card metadata where possible, but replaces the audio, cover and icons and resets those three track options.
 The app saves a private snapshot before replacement; there is no automatic restore UI.
 It checks the source, card and library membership again before writing, but the check is not atomic with the
 Yoto request. Avoid editing the same card on Yoto while this tool is running. Live replacement has not been

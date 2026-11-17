@@ -392,14 +392,33 @@ def build_payload(album, audio, cover_url, icons):
             "config": {
                 "resumeTimeout": 2592000,
                 "onlineOnly": False,
-                "shuffle": [{"start": 0, "end": len(chapters) - 1, "limit": len(chapters)}],
             },
             "chapters": chapters,
         },
     }
 
 
-def check_card(card, album, expected=None):
+def playback_options(content):
+    config = content.get("config")
+    settings = content.get("editSettings")
+    config = {} if config is None else config
+    settings = {} if settings is None else settings
+    if not isinstance(config, dict) or not isinstance(settings, dict):
+        raise RuntimeError("Invalid card playback settings")
+    timeout = config.get("resumeTimeout")
+    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float))):
+        raise RuntimeError("Invalid resume timeout")
+    # Yoto treats any shuffle array, including an empty one, as enabled.
+    shuffle = config.get("shuffle")
+    if shuffle is not None and not isinstance(shuffle, list):
+        raise RuntimeError("Invalid shuffle configuration")
+    hidden = settings.get("autoOverlayLabels") == "disabled" or any(
+        chapter.get("overlayLabel") in (None, "") for chapter in content["chapters"]
+    )
+    return timeout == 0, shuffle, hidden
+
+
+def check_card(card, album, expected=None, verify_playback=True):
     if card.get("title") != album["title"]:
         raise RuntimeError(f"Title verification failed: {album['title']}")
     content = card.get("content", {})
@@ -409,10 +428,15 @@ def check_card(card, album, expected=None):
     tracks = [track for chapter in chapters for track in chapter.get("tracks", [])]
     if len(chapters) != len(album["audio"]) or len(tracks) != len(album["audio"]):
         raise RuntimeError(f"Track count verification failed: {album['title']}")
-    if content.get("config", {}).get("shuffle") != [
-        {"start": 0, "end": len(chapters) - 1, "limit": len(chapters)}
-    ]:
-        raise RuntimeError(f"Shuffle verification failed: {album['title']}")
+    if expected and verify_playback:
+        actual_options = playback_options(content)
+        expected_options = playback_options(expected["content"])
+        if actual_options[0] != expected_options[0]:
+            raise RuntimeError(f"Always-play-from-start verification failed: {album['title']}")
+        if actual_options[1] != expected_options[1]:
+            raise RuntimeError(f"Shuffle verification failed: {album['title']}")
+        if actual_options[2] != expected_options[2]:
+            raise RuntimeError(f"Track-number visibility verification failed: {album['title']}")
     cover = card.get("metadata", {}).get("cover", {}).get("imageL")
     if not cover:
         raise RuntimeError(f"Cover missing: {album['title']}")
@@ -669,6 +693,9 @@ def overwrite_album(album, library, review):
         config = content.get("config", {})
         if not isinstance(config, dict):
             raise RuntimeError(f"Existing card has invalid playback settings: {title}")
+        settings = content.get("editSettings")
+        if settings is not None and not isinstance(settings, dict):
+            raise RuntimeError(f"Existing card has invalid edit settings: {title}")
         print(f"START {title}: {len(album['audio'])} tracks", flush=True)
         audio = [None] * len(album["audio"])
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -687,8 +714,11 @@ def overwrite_album(album, library, review):
         }
         payload["content"]["config"] = {
             **replacement["content"]["config"], **copy.deepcopy(config),
-            "shuffle": replacement["content"]["config"]["shuffle"],
+            "resumeTimeout": replacement["content"]["config"]["resumeTimeout"],
         }
+        payload["content"]["config"].pop("shuffle", None)
+        if settings is not None:
+            payload["content"]["editSettings"].pop("autoOverlayLabels", None)
         history = recorded.get("previousRecords", []) if recorded else []
         if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
             raise RuntimeError(f"Invalid previous card history: {title}")
@@ -792,7 +822,7 @@ def run_album(album, library, replace_placeholder=True, recreate_missing=False, 
                     raise RuntimeError(f"Selected cover changed during an unfinished update: {title}")
             elif not cover_already_replaced:
                 raise RuntimeError(f"Reselect the cover for the unfinished update: {title}")
-        check_card(card, album, expected)
+        check_card(card, album, expected, verify_playback=False)
         previous_icons = recorded.get("iconIds") if recorded else None
         if previous_icons is None:
             previous_icons = [None] * len(album["icons"])
@@ -885,10 +915,12 @@ def run_album(album, library, replace_placeholder=True, recreate_missing=False, 
         "iconIds": icons, "iconsVerified": all(icons),
     })
     save_state()
+    shuffle = playback_options(payload["content"])[1] is not None
     print(f"VERIFIED {title}: card={card_id}; tracks={len(audio)}; "
           f"icons={sum(icon is not None for icon in icons)}; "
           f"missing source icons={sum(icon is None for icon in icons)}; "
-          f"cover={'placeholder' if album['cover'] is None else 'provided'}; shuffle=yes; via={verification}", flush=True)
+          f"cover={'placeholder' if album['cover'] is None else 'provided'}; "
+          f"shuffle={'yes' if shuffle else 'no'}; via={verification}", flush=True)
 
 
 def verify_album(album, library):
@@ -939,10 +971,12 @@ def verify_album(album, library):
         ):
             raise RuntimeError(f"Pre-existing card differs from retained baseline: {album['title']}")
         print(f"BASELINE_ONLY {album['title']}: pre-existing audio/cover preserved, not re-uploaded", flush=True)
+    shuffle = playback_options(card["content"])[1] is not None
     print(f"AUDITED {album['title']}: {count} tracks; "
           f"{sum(icon is not None for icon in icons)} remote icons checked; "
           f"missing source icons={sum(path is None for path in album['icons'])}; "
-          f"cover={'placeholder' if recorded.get('coverPlaceholder') else 'present'}; shuffle=yes", flush=True)
+          f"cover={'placeholder' if recorded.get('coverPlaceholder') else 'present'}; "
+          f"shuffle={'yes' if shuffle else 'no'}", flush=True)
 
 
 def inspect_album(album, library):

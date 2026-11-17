@@ -381,6 +381,7 @@ class UploadTests(unittest.TestCase):
             saved = self.state["albums"][album["title"]]
             self.assertTrue(saved["coverPlaceholder"])
             self.assertEqual(saved["iconIds"], ["synthetic-icon", None])
+            self.assertNotIn("shuffle", remote["card"]["content"]["config"])
             self.assertNotIn("display", remote["card"]["content"]["chapters"][1])
             original = copy.deepcopy(remote["card"])
 
@@ -525,6 +526,26 @@ class UploadTests(unittest.TestCase):
             self.assertEqual((saved["status"], saved["cardId"], saved["iconIds"]),
                              ("verified", card["cardId"], icons))
             self.assertEqual(saved["payload"], payload)
+
+    def test_interrupted_legacy_shuffle_creation_reconciles_and_audits_without_writes(self):
+        album, payload, card, icons = self.album_and_payload()
+        shuffle = [{"start": 0, "end": len(album["audio"]) - 1, "limit": len(album["audio"])}]
+        payload["content"]["config"]["shuffle"] = shuffle
+        card["content"]["config"]["shuffle"] = copy.deepcopy(shuffle)
+        self.state["albums"][album["title"]].update(status="created", payload=copy.deepcopy(payload))
+        output = io.StringIO()
+        with patch.object(upload, "full_read_enabled", return_value=True), \
+                patch.object(upload, "request_json", return_value={"card": copy.deepcopy(card)}) as api, \
+                patch.object(upload, "upload_audio", side_effect=AssertionError("Must not re-upload")), \
+                patch.object(upload, "upload_icons", side_effect=AssertionError("Must not re-upload")), \
+                patch("sys.stdout", output):
+            upload.run_album(album, [card], create_only=True)
+            upload.verify_album(album, [card])
+        self.assertEqual(api.call_count, 2)
+        self.assertEqual(self.state["albums"][album["title"]]["status"], "verified")
+        self.assertEqual(self.state["albums"][album["title"]]["iconIds"], icons)
+        self.assertEqual(self.state["albums"][album["title"]]["payload"], payload)
+        self.assertIn("shuffle=yes", output.getvalue())
 
     def test_create_only_does_not_reconcile_a_changed_or_wrong_card(self):
         album, _, card, _ = self.album_and_payload()
@@ -698,6 +719,11 @@ class UploadTests(unittest.TestCase):
         album, payload, card, icons = self.album_and_payload()
         card["metadata"]["description"] = "Retain this description"
         card["content"]["config"]["autoadvance"] = "repeat"
+        card["content"]["config"]["onlineOnly"] = True
+        card["content"]["config"]["resumeTimeout"] = 0
+        card["content"]["config"]["shuffle"] = [{"start": 0, "end": 1, "limit": 2}]
+        card["content"]["editSettings"] = {"autoOverlayLabels": "disabled", "transcodeAudioUploads": True}
+        card["content"]["chapters"][0]["overlayLabel"] = ""
         original = copy.deepcopy(card)
         library = [{"title": album["title"], "cardId": card["cardId"]}]
         remote = {"card": copy.deepcopy(card)}
@@ -728,6 +754,13 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(remote["card"]["cardId"], card["cardId"])
         self.assertEqual(remote["card"]["metadata"]["description"], "Retain this description")
         self.assertEqual(remote["card"]["content"]["config"]["autoadvance"], "repeat")
+        self.assertTrue(remote["card"]["content"]["config"]["onlineOnly"])
+        self.assertNotEqual(remote["card"]["content"]["config"]["resumeTimeout"], 0)
+        self.assertNotIn("shuffle", remote["card"]["content"]["config"])
+        self.assertEqual(remote["card"]["content"]["editSettings"], {"transcodeAudioUploads": True})
+        for index, chapter in enumerate(remote["card"]["content"]["chapters"], 1):
+            self.assertEqual(chapter["overlayLabel"], str(index))
+            self.assertEqual(chapter["tracks"][0]["overlayLabel"], str(index))
         self.assertEqual(self.state["albums"][album["title"]]["status"], "verified")
         snapshots = list((self.work / "before-overwrite").glob("*.json"))
         self.assertEqual(len(snapshots), 1)
@@ -800,6 +833,38 @@ class UploadTests(unittest.TestCase):
             upload.overwrite_album(album, library, review)
         self.assertEqual(len(posts), 1)
         self.assertEqual(self.state["albums"][album["title"]]["status"], "verified")
+
+    def test_pending_legacy_shuffle_overwrite_reconciles_without_another_post(self):
+        album, payload, card, _ = self.album_and_payload()
+        shuffle = [{"start": 0, "end": len(album["audio"]) - 1, "limit": len(album["audio"])}]
+        payload["cardId"] = card["cardId"]
+        payload["content"]["config"]["shuffle"] = shuffle
+        card["content"]["config"]["shuffle"] = copy.deepcopy(shuffle)
+        local_fingerprint = upload.album_fingerprint(album)
+        self.state["albums"][album["title"]].update(
+            status="pending_overwrite", payload=copy.deepcopy(payload),
+            sourceFingerprint=local_fingerprint, baselineFingerprint="before-update",
+        )
+        library = [{"title": album["title"], "cardId": card["cardId"]}]
+        calls = []
+
+        def fake_api(route, method="GET", **_):
+            calls.append((route, method))
+            if route == "/content/mine":
+                return {"cards": library}
+            if route == "/content/synthetic-card":
+                return {"card": copy.deepcopy(card)}
+            self.fail(f"Unexpected synthetic request: {method} {route}")
+
+        review = {"action": "replace", "localFingerprint": local_fingerprint,
+                  "remoteFingerprint": upload.card_fingerprint(card)}
+        with patch.object(upload, "request_json", side_effect=fake_api), \
+                patch.object(upload, "upload_audio", side_effect=AssertionError("Must not re-upload")), \
+                patch.object(upload, "upload_icons", side_effect=AssertionError("Must not re-upload")):
+            upload.overwrite_album(album, library, review)
+        self.assertEqual(calls, [("/content/mine", "GET"), ("/content/synthetic-card", "GET")])
+        self.assertEqual(self.state["albums"][album["title"]]["status"], "verified")
+        self.assertEqual(self.state["albums"][album["title"]]["payload"], payload)
 
     def test_unconfirmed_replacement_never_reposts_even_if_previous_card_remains(self):
         album, payload, card, icons = self.album_and_payload()
@@ -887,10 +952,15 @@ class UploadTests(unittest.TestCase):
             upload.prepare_covers()
         self.assertFalse((self.root / "Covers").exists())
 
-    def test_payload_shuffle_both_icons_and_server_rounding(self):
+    def test_payload_defaults_both_icons_and_server_rounding(self):
         album, payload, card, icons = self.album_and_payload()
         upload.check_icons(card, icons)
-        self.assertEqual(card["content"]["config"]["shuffle"], [{"start": 0, "end": 1, "limit": 2}])
+        self.assertNotIn("shuffle", payload["content"]["config"])
+        self.assertNotEqual(payload["content"]["config"]["resumeTimeout"], 0)
+        self.assertNotEqual(payload["content"].get("editSettings", {}).get("autoOverlayLabels"), "disabled")
+        for index, chapter in enumerate(payload["content"]["chapters"], 1):
+            self.assertEqual(chapter["overlayLabel"], str(index))
+            self.assertEqual(chapter["tracks"][0]["overlayLabel"], str(index))
         track = card["content"]["chapters"][0]["tracks"][0]
         track["duration"] += 1
         upload.check_card(card, album, payload)
@@ -900,6 +970,28 @@ class UploadTests(unittest.TestCase):
         track["display"]["icon16x16"] = "yoto:#wrong-icon"
         with self.assertRaisesRegex(RuntimeError, "Icon verification"):
             upload.check_icons(card, icons)
+
+    def test_card_verification_checks_all_three_playback_options(self):
+        album, payload, card, _ = self.album_and_payload()
+        restart = copy.deepcopy(card)
+        restart["content"]["config"]["resumeTimeout"] = 0
+        empty_shuffle = copy.deepcopy(card)
+        empty_shuffle["content"]["config"]["shuffle"] = []
+        hidden_by_setting = copy.deepcopy(card)
+        hidden_by_setting["content"]["editSettings"] = {"autoOverlayLabels": "disabled"}
+        missing_label = copy.deepcopy(card)
+        missing_label["content"]["chapters"][0].pop("overlayLabel")
+        empty_label = copy.deepcopy(card)
+        empty_label["content"]["chapters"][0]["overlayLabel"] = ""
+        for changed, message in (
+            (restart, "Always-play-from-start"),
+            (empty_shuffle, "Shuffle"),
+            (hidden_by_setting, "Track-number visibility"),
+            (missing_label, "Track-number visibility"),
+            (empty_label, "Track-number visibility"),
+        ):
+            with self.subTest(message=message, changed=changed), self.assertRaisesRegex(RuntimeError, message):
+                upload.check_card(changed, album, payload)
 
     def test_icon_upload_preserves_native_png_and_converts_other_formats(self):
         folder = self.make_album()
@@ -944,6 +1036,37 @@ class UploadTests(unittest.TestCase):
         backup = self.work / "before-icons" / "synthetic-card.json"
         self.assertEqual(json.loads(backup.read_text()), before)
         upload.check_icons(remote, icons)
+
+    def test_existing_icon_update_preserves_manually_changed_playback_options(self):
+        album, _, card, icons = self.album_and_payload()
+        card["content"] = upload.without_icons(card["content"])
+        card["content"]["config"]["resumeTimeout"] = 0
+        card["content"]["config"]["shuffle"] = []
+        card["content"]["editSettings"] = {"autoOverlayLabels": "disabled"}
+        before = copy.deepcopy(card)
+        remote = copy.deepcopy(card)
+        output = io.StringIO()
+
+        def fake_api(route, method="GET", body=None, **_):
+            nonlocal remote
+            if route == "/content/mine":
+                return {"cards": [copy.deepcopy(remote)]}
+            if route == "/content" and method == "POST":
+                remote = {**copy.deepcopy(body), "updatedAt": "new-version"}
+                return {"card": copy.deepcopy(remote)}
+            if route == "/content/synthetic-card":
+                return {"card": copy.deepcopy(remote)}
+            self.fail(f"Unexpected synthetic request: {method} {route}")
+
+        with patch.object(upload, "full_read_enabled", return_value=True), \
+                patch.object(upload, "request_json", side_effect=fake_api), \
+                patch.object(upload, "upload_icons", return_value=icons), patch("sys.stdout", output):
+            upload.run_album(album, [card], replace_placeholder=False)
+            upload.verify_album(album, [remote])
+        self.assertEqual(upload.without_icons(remote["content"]), upload.without_icons(before["content"]))
+        self.assertEqual(remote["metadata"], before["metadata"])
+        upload.check_icons(remote, icons)
+        self.assertIn("shuffle=yes", output.getvalue())
 
     def test_removed_or_ambiguous_card_is_not_updated_even_if_its_id_is_readable(self):
         album, _, card, icons = self.album_and_payload()
